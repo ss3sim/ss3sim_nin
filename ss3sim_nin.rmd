@@ -20,10 +20,19 @@ fontsize: 12pt
 Todo: read Punt and Francis papers.
 
 # Methods
+## Overview
+Monte Carlo simulations were used to evaluate the performance of three methods of data weighting for stock assessment models.
+Particularly, Stock Synthesis (citation), an integrated age-structured population modeling framework used to conduct assessments of marine fish populations throughout the world, was used to both generate the truth (operating model; OM) and to estimate the status (estimation method; EM).
+Combinations of OM, data generation, and EM (hereafter referred to as scenarios) consisted of the following three steps:
+
+  * simulate a marine fish population for 100 years with process error,
+  * estimate quantities of interest by fitting the EM to data sampled with observation error from the OM, and
+  * compare the estimates to the truth.
+
 ```{r settings}
 thedir <- "c:/Users/kelli/Documents/ss3sim_nin"
 niter <- 10
-fixx <- c(1, 2)
+fixx <- c(2, 3)
 fixn <- seq(25, 200, by = 25)
 name.om <- "hakeom"
 name.em <- "hakeem"
@@ -57,6 +66,7 @@ scen <- data.frame(
   "sa.cpar" = "NULL",
   "wc.method" = "DM",
   "wc.fleets" = "1:2",
+  "wc.niters_weighting" = 3,
   "co.par_name" = 'c("Age_DblN_peak_Survey(2)")',
   "ce.par_name" = 'c("AgeSel_P_1_Survey")',
   "ce.par_phase" = "c(NA)",
@@ -65,13 +75,46 @@ scen <- data.frame(
 )
 scen.all <- data.frame(scen,
   "co.par_int" = grid[, 1],
+  "ce.par_int" = grid[, 1],
   "sl.ESS" = grid[, 2])
+scen.all <- do.call("rbind", replicate(3, scen.all, simplify = FALSE))
+scen.all[, "wc.method"] <- rep(c("DM", "Francis", "MI"), each = NROW(grid))
 # Set scenario names if you want
 scen.all[, "scenarios"] <- paste0("nin-", seq(1,NROW(scen.all)))
 ```
 
+## Operating model
+The simulation was based on a hake-like life history, where the OMs largely used parameters estimated from the 2011 (citation) and 2019 (citation) stock assessments for Pacific hake (\emph{Merluccius productus}).
+All simulated populations were unfished during the first 25 years to allow processes error to propagate throughout each age.
+Fishing was implemented in year 26 using a constant level of instantaneous fishing mortality (\emph{F}) for the remaining 75 years of the simulation.
+
+Selectivity was the largest investigated axis of uncertainty in the OMs.
+
+  * First, we decreased the age of inflection for the survey from three to two.
+  * Second, we implemented time-varying selectivity in the fishery (todo).
+
+## Data sampling
+Data were sampled from the OMs with observation error to simulate how empirical data are gathered.
+
+Catch data were not subject to observation and were assumed to be known without error.
+
+Sample size for length- and age-composition data were was the largest axis of uncertainty investigated in the data-sampling process.
+
+  * Sample sizes increased throughout time for both the fishery and the survey (todo).
+
+## Estimation method
+The EMs were fit to data generated during the data-sampling process and were largely based on the OMs.
+
+Axes of uncertainty investigated in the EMs included variations of how selectivity was parameterized and how compositional data sources were weighted.
+
+Changes in data weighting were investigated using input sample size and data-weighting algorithms.
+
+  * Input sample sizes were either constant throughout time or time varying (todo) and ranged from 25 to 200.
+  * Compositional data were weighted internally to the EM using Dirichlet-Multinomial parameters or were weighted using the Francis (citation) or McAlister-Ianelli (citation) approach.
+
+
 ```{r run, eval = FALSE}
-run_ss3sim(iterations = 1:niter, simdf = scen.all)
+run_ss3sim(iterations = 1:niter, simdf = scen.all[-(1:4),])
 get_results_all()
 ```
 ```{r plotsetup, echo = FALSE}
@@ -79,6 +122,7 @@ sc <- read.csv(dir(pattern = "scalar"))
 ts <- read.csv(dir(pattern = "ts"))
 scre <- calculate_re(sc)
 scre$Nin <- scen.all[match(scre$scenario, scen.all$scenario), "sl.ESS"]
+scre$method <- scen.all[match(scre$scenario, scen.all$scenario), "wc.method"]
 scre$dm_1 <- with(scre, exp(ln_DM_theta_1_em)/(1+exp(ln_DM_theta_1_em))) * scre$Nin
 scre$dm_2 <- with(scre, exp(ln_DM_theta_2_em)/(1+exp(ln_DM_theta_2_em))) * scre$Nin
 scre$dm_3 <- with(scre, exp(ln_DM_theta_3_em)/(1+exp(ln_DM_theta_3_em))) * scen.all$sa.Nsamp.1[1]
@@ -87,9 +131,9 @@ scre$dm_4 <- with(scre, exp(ln_DM_theta_4_em)/(1+exp(ln_DM_theta_4_em))) * scen.
 
 # Results
   * Input sample sizes smaller than the true value will always lead to underestimation of the true sample size
-  * As input sample sizes become more positively biased relative to the true sample size, the estimated effective sample size becomes more negatively biased
+  * As input sample sizes become more positively biased relative to the true sample size, the estimated effective sample size was more negatively biased
   * Error in estimates of effective sample size lead to error in estimates of growth parameters
-  * Estimation of age-composition weightings are independent of succesfull estimation of length-composition weightings
+  * Estimation of age-composition weightings are independent of successful estimation of length-composition weightings
 
 # Tables
 Tables suck.
@@ -98,26 +142,28 @@ Tables suck.
 
 ## Figures with captions
 ```{r plotsdmlength, echo = FALSE, fig.cap = "Effective sample sizes for length-composition data after estimating Dirichlet-Multinomial (DM) relative weighting parameters. Colors indicate the input sample size and solid green lines are the true sample size used in the operating model (OM). Columns reflect a change in survey selectivity in the OM. Note the change in the scale for each y axis."}
-gg <- plot_points(data = scre, x = "dm_1", y = "dm_2", 
+gg <- plot_points(data = scre, x = "dm_2", y = "dm_1",
   vert = "Age_inflection_Survey_2_om", horiz = "Nin",
-  color = "Nin", print = FALSE) + 
-xlab("Fishery length-composition effective sample size after DM estimation") +
-ylab("Survey length-composition effective sample size after DM estimation") +
+  color = "Nin", print = FALSE) +
+xlab("Survey length-composition effective sample size after DM estimation") +
+ylab("Fishery length-composition effective sample size after DM estimation") +
 labs(title = "Operating model survey selectivity age of inflection",
   col = "Length\ncomp\ninput N") +
+theme(plot.title = element_text(hjust = 0.5)) +
 geom_hline(yintercept = 50, col = "dark green") +
 geom_vline(xintercept = 50, col = "dark green")
 print(gg)
 ```
 
 ```{r plotsdmage, echo = FALSE, fig.cap = "Effective sample sizes for age-composition data after estimating Dirichlet-Multinomial (DM) relative weighting parameters. Colors indicate the input sample size for length-composition data, where the true was 50, and solid green lines are the true sample size used in the operating model (OM). Columns reflect a change in survey selectivity in the OM."}
-gg <- plot_points(data = scre, x = "dm_3", y = "dm_4", 
+gg <- plot_points(data = scre, x = "dm_4", y = "dm_3",
   vert = "Age_inflection_Survey_2_om", horiz = "Nin",
-  color = "Nin", axes.free = FALSE, print = FALSE) + 
-xlab("Fishery age-composition effective sample size after DM estimation") +
-ylab("Survey age-composition effective sample size after DM estimation") +
+  color = "Nin", axes.free = FALSE, print = FALSE) +
+xlab("Survey age-composition effective sample size after DM estimation") +
+ylab("Fishery age-composition effective sample size after DM estimation") +
 labs(title = "Operating model survey selectivity age of inflection",
-  col = "Length\ncomp\ninput N") + 
+  col = "Length\ncomp\ninput N") +
+theme(plot.title = element_text(hjust = 0.5)) +
 geom_hline(yintercept = 100, col = "dark green") +
 geom_vline(xintercept = 100, col = "dark green")
 print(gg)
@@ -125,31 +171,37 @@ print(gg)
 
 ## Figures without captions
 ```{r plotsm, echo = FALSE}
-gg <- plot_points(data = scre, x = "NatM_p_1_Fem_GP_1_em", y = "Age_inflection_Survey_2_em",
-  vert = "Age_inflection_Survey_2_om", #horiz = "Nin",
+gg <- plot_points(data = scre, x = "Age_inflection_Survey_2_em", y = "NatM_p_1_Fem_GP_1_em",
+  vert = "Age_inflection_Survey_2_om", horiz = "method",
   col = "Nin", axes.free = FALSE, print = FALSE) +
-  geom_vline(xintercept = 0.21) +
-labs(title = "Operating model survey selectivity age of inflection",
-  col = "Length\ncomp\ninput N")
+  geom_hline(yintercept = scre[1, "NatM_p_1_Fem_GP_1_om"]) +
+  geom_vline(aes(xintercept = Age_inflection_Survey_2_om)) +
+  labs(title = "Operating model survey selectivity age of inflection",
+    col = "Length\ncomp\ninput N") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab(expression(hat(M))) +
+  xlab(expression(hat(Survey~age~of~inflection)))
 print(gg)
 gg <- plot_points(data = scre, x = "VonBert_K_Fem_GP_1_em", y = "L_at_Amax_Fem_GP_1_em",
-  vert = "Age_inflection_Survey_2_om", #horiz = "Nin",
+  vert = "Age_inflection_Survey_2_om", horiz = "method",
   col = "Nin", axes.free = FALSE, print = FALSE) +
   geom_vline(xintercept = scre[1,"VonBert_K_Fem_GP_1_om"], col = "dark green") +
   geom_hline(yintercept = scre[1,"L_at_Amax_Fem_GP_1_om"], col = "dark green") +
   labs(title = "Operating model survey selectivity age of inflection",
     col = "Length\ncomp\ninput N") +
+  theme(plot.title = element_text(hjust = 0.5)) +
   xlab(expression(hat(K))) +
   ylab(expression(hat(L~at~max~age)))
 print(gg)
-gg <- plot_points(data = scre, x = "Age_95.width_Fishery_1_em", y = "Age_95.width_Survey_2_em",
-  vert = "Age_inflection_Survey_2_om", #horiz = "Nin",
+gg <- plot_points(data = scre, x = "Age_95.width_Survey_2_em", y = "Age_95.width_Fishery_1_em",
+  vert = "Age_inflection_Survey_2_om", horiz = "method",
   col = "Nin", axes.free = FALSE, print = FALSE) +
-  geom_vline(xintercept = scre[1,"Age_95.width_Fishery_1_om"], col = "dark green") +
-  geom_hline(yintercept = scre[1,"Age_95.width_Survey_2_om"], col = "dark green") +
+  geom_hline(yintercept = scre[1,"Age_95.width_Fishery_1_om"], col = "dark green") +
+  geom_vline(xintercept = scre[1,"Age_95.width_Survey_2_om"], col = "dark green") +
 labs(title = "Operating model survey selectivity age of inflection",
   col = "Length\ncomp\ninput N") +
-  xlab(expression(hat(Fishery~age~at~peak))) +
-  ylab(expression(hat(Survey~age~at~peak)))
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab(expression(hat(Survey~age~at~peak))) +
+  ylab(expression(hat(Fishery~age~at~peak)))
 print(gg)
 ```
